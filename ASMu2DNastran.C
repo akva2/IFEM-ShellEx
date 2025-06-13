@@ -491,6 +491,52 @@ void ASMu2DNastran::addBeamElement (FFlElementBase* elm, int eId,
 }
 
 
+template<class I1, class I2, class Comp = std::less<> >
+bool has_element_in_common(I1 first1, I1 last1, I2 first2, I2 last2, Comp&& comp = Comp())
+{
+    while (first1 != last1 and first2 != last2)
+    {
+        if (comp(*first1, *first2))
+        {
+            ++first1;
+        }
+        else if (comp(*first2, *first1))
+        {
+            ++first2;
+        }
+        else
+        {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+
+void ASMu2DNastran::getElmConnectivities (IntMat& neigh) const
+{
+  std::vector<std::set<int>> mnpcCache;
+  mnpcCache.reserve(MNPC.size());
+  for (const auto& nodes : MNPC)
+    mnpcCache.emplace_back(nodes.begin(), nodes.end());
+
+  for (size_t iel = 1; iel <= mnpcCache.size(); ++iel) {
+      const int igel = iel - 1;
+      for (size_t ne = iel + 1; ne <= mnpcCache.size(); ++ne) {
+        if (has_element_in_common(mnpcCache[iel - 1].begin(), mnpcCache[iel - 1].end(),
+                                  mnpcCache[ne - 1].begin(), mnpcCache[ne - 1].end()))
+       {
+          int ngel = ne - 1;
+          neigh[igel].push_back(ngel);
+          neigh[ngel].push_back(igel);
+        }
+      }
+    std::cout << iel << std::endl;
+  }
+}
+
+
 void ASMu2DNastran::addShellElement (FFlElementBase* elm, int eId,
                                      const IntVec& mnpc)
 {
@@ -1111,4 +1157,22 @@ bool ASMuBeam::initLocalElementAxes (const Vec3& Zaxis)
   }
 
   return true;
+}
+
+
+void ASMuBeam::getElmConnectivities (IntMat& neigh) const
+{
+  for (size_t iel = 1; iel <= this->getNoElms(); ++iel) {
+    std::set<int> neighs;
+    for (int n : MNPC[iel-1]) {
+      std::for_each(MNPC.begin(), MNPC.end(),
+                    [n, &neighs, &mlge = MLGE](const auto& nodes)
+                    {
+                      const auto it = std::find(nodes.begin(), nodes.end(), n);
+                      if (it != nodes.end())
+                        neighs.insert(mlge[std::distance(nodes.begin(), it)]);
+                    });
+    }
+    neigh[iel-1] = std::vector<int>{neighs.begin(), neighs.end()};
+  }
 }

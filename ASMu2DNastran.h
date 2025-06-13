@@ -90,6 +90,8 @@ public:
   //! \brief Returns the sub-patch with beam elements, if any.
   ASMbase* haveBeams() const { return beamPatch; }
 
+  virtual void getElmConnectivities(IntMat& neighs) const;
+
 protected:
   //! \brief Adds an element block with additional geometry.
   void addBlock(int idx, ElementBlock* blk);
@@ -185,6 +187,8 @@ public:
   //! \brief Retrieves the properties for element with index \a id.
   bool getProps(int eId, double& E, double& G, double& rho,
                 BeamProperty& bprop) const;
+
+  virtual void getElmConnectivities(IntMat& neighs) const;
 
 protected:
   //! \brief Initializes the local element axes for a patch of beam elements.
