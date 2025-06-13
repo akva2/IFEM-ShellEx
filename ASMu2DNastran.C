@@ -19,6 +19,7 @@
 #include "MPC.h"
 #include "Vec3Oper.h"
 #include "IFEM.h"
+#include <algorithm>
 #include <sstream>
 
 namespace ASM {
@@ -43,10 +44,36 @@ namespace ASM {
 #include "FFlFEParts/FFlPBEAMSECTION.H"
 #include "FFlFEParts/FFlPBEAMECCENT.H"
 #include "FFlFEParts/FFlPORIENT.H"
+
 #include <unordered_map>
 
 namespace FFlNastran {
   extern std::string mainPath;
+}
+
+namespace {
+
+template<class I1, class I2, class Comp = std::less<> >
+bool has_element_in_common(I1 first1, I1 last1, I2 first2, I2 last2, Comp&& comp = Comp())
+{
+  while (first1 != last1 && first2 != last2) {
+    if (comp(*first1, *first2))
+      ++first1;
+    else if (comp(*first2, *first1))
+      ++first2;
+    else
+      return true;
+  }
+
+  return false;
+}
+
+
+bool has_element_in_common(const std::set<int>& s1, const std::set<int>& s2)
+{
+  return has_element_in_common(s1.begin(), s1.end(), s2.begin(), s2.end());
+}
+
 }
 
 
@@ -488,6 +515,25 @@ void ASMu2DNastran::addBeamElement (FFlElementBase* elm, int eId,
   if (!bprop.eccN[1].isZero()) std::cout <<"\necc2: "<< bprop.eccN[1];
   std::cout << std::endl;
 #endif
+}
+
+
+void ASMu2DNastran::getElmConnectivities (IntMat& neigh) const
+{
+  std::vector<std::set<int>> mnpcCache;
+  mnpcCache.reserve(MNPC.size());
+  std::transform(MNPC.begin(), MNPC.end(), std::back_inserter(mnpcCache),
+                 [](const auto& nodes) -> std::set<int>
+                 { return {nodes.begin(), nodes.end()}; });
+
+#pragma omp parallel for schedule(static)
+  for (size_t iel = 1; iel <= mnpcCache.size(); ++iel) {
+      for (size_t ne = 1; ne <= mnpcCache.size(); ++ne) {
+        if (iel != ne && has_element_in_common(mnpcCache[iel - 1],
+                                               mnpcCache[ne - 1]))
+          neigh[iel - 1].push_back(ne - 1);
+      }
+  }
 }
 
 
@@ -1111,4 +1157,22 @@ bool ASMuBeam::initLocalElementAxes (const Vec3& Zaxis)
   }
 
   return true;
+}
+
+
+void ASMuBeam::getElmConnectivities (IntMat& neigh) const
+{
+  for (size_t iel = 1; iel <= this->getNoElms(); ++iel) {
+    std::set<int> neighs;
+    for (int n : MNPC[iel-1]) {
+      std::for_each(MNPC.begin(), MNPC.end(),
+                    [n, &neighs, &mlge = MLGE](const auto& nodes)
+                    {
+                      const auto it = std::find(nodes.begin(), nodes.end(), n);
+                      if (it != nodes.end())
+                        neighs.insert(mlge[std::distance(nodes.begin(), it)]);
+                    });
+    }
+    neigh[iel-1] = std::vector<int>{neighs.begin(), neighs.end()};
+  }
 }
